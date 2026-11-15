@@ -34,6 +34,7 @@ class _HomeState extends State<Home> {
   int tab=0;
   DateTime month=DateTime(DateTime.now().year,DateTime.now().month);
   bool loading=true;
+  bool studiedToday=false;
   String get today=>dateKey(DateTime.now());
   Map<String,dynamic>? get todayRecord => history[today] is Map ? Map<String,dynamic>.from(history[today]) : null;
   @override void initState(){super.initState();load();}
@@ -44,7 +45,7 @@ class _HomeState extends State<Home> {
     final h=Map<String,dynamic>.from(jsonDecode(p.getString('brainup_history')??'{}'));
     final firstRun=p.getString('brainup_installed_on')??today;
     await p.setString('brainup_installed_on',firstRun);
-    setState(() {words=loaded;history=h;installedOn=firstRun;loading=false;});
+    setState(() {words=loaded;history=h;installedOn=firstRun;studiedToday=p.getString('brainup_studied_date')==today;loading=false;});
     await save();
   }
   Future<void> save() async {final p=await SharedPreferences.getInstance();await p.setString('brainup_words',jsonEncode(words.map((x)=>x.toJson()).toList()));await p.setString('brainup_history',jsonEncode(history));}
@@ -54,9 +55,31 @@ class _HomeState extends State<Home> {
     final fresh=words.where((w)=>w.repetitions==0).take(10).toList();
     return [...eligible.take(20),...fresh];
   }
+  void startStudy() {
+    final current=getTodayPlan();
+    if(current.isEmpty){
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content:Text('오늘 학습할 단어가 없어요.'))
+      );
+      return;
+    }
+    Navigator.push(context,MaterialPageRoute(
+      builder:(_)=>StudyPage(words:current,onFinished:() async {
+        final prefs=await SharedPreferences.getInstance();
+        await prefs.setString('brainup_studied_date',today);
+        if(mounted)setState(()=>studiedToday=true);
+      })
+    ));
+  }
   void startQuiz({required bool practice}) {
     final current=getTodayPlan();
     if(current.isEmpty){ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('오늘 학습할 단어가 없어요. 단어를 추가하거나 다음 복습일을 기다려 주세요.')));return;}
+    if(!studiedToday){
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content:Text('먼저 오늘의 단어 학습을 완료해 주세요.'))
+      );
+      return;
+    }
     if(!practice)plan=current;
     Navigator.of(context).push(MaterialPageRoute(builder:(_)=>QuizPage(words:current,practice:practice,onFinished:(results){
       if(!practice){
@@ -87,7 +110,15 @@ class _HomeState extends State<Home> {
   Widget panel(Widget child)=>Card(color:Colors.white,margin:const EdgeInsets.symmetric(vertical:8),child:Padding(padding:const EdgeInsets.all(18),child:child));
   Widget homePage(){
     final p=getTodayPlan(); final fresh=p.where((w)=>w.repetitions==0).length;final review=p.length-fresh;
-    return ListView(padding:const EdgeInsets.all(16),children:[panel(Column(crossAxisAlignment:CrossAxisAlignment.stretch,children:[Row(mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[IconButton(onPressed:()=>setState(()=>month=DateTime(month.year,month.month-1)),icon:const Icon(Icons.chevron_left)),Text('${month.year}년 ${month.month}월',style:const TextStyle(fontSize:26,fontWeight:FontWeight.bold,color:navy)),IconButton(onPressed:()=>setState(()=>month=DateTime(month.year,month.month+1)),icon:const Icon(Icons.chevron_right))]),calendar(),const SizedBox(height:12),const Text('🔵 O: 목표 달성    🔴 X: 목표 미달성    ·: 오늘 진행 중',textAlign:TextAlign.center,style:TextStyle(fontSize:14))])),panel(Column(crossAxisAlignment:CrossAxisAlignment.stretch,children:[const Text('오늘의 학습',style:TextStyle(fontSize:24,fontWeight:FontWeight.bold)),const SizedBox(height:12),Text('새 단어 $fresh/10개   ·   복습 단어 $review/20개',style:const TextStyle(fontSize:19)),const SizedBox(height:6),Text('오늘 평가 ${p.length}문제 · 통과 ${((p.length*.8).ceil())}문제 이상',style:const TextStyle(color:navy)),if(p.length<30)const Padding(padding:EdgeInsets.only(top:8),child:Text('초기 학습이나 복습 예정 단어가 부족한 날은 가능한 단어만 평가합니다.',style:TextStyle(color:Colors.black54))),const SizedBox(height:14),FilledButton.icon(onPressed:()=>startQuiz(practice:true),icon:const Icon(Icons.school),label:const Text('연습하기 · 즉시 피드백')),const SizedBox(height:8),FilledButton.icon(onPressed:()=>startQuiz(practice:false),icon:const Icon(Icons.edit),label:const Text('오늘의 평가 · 종료 후 채점')),if(todayRecord!=null)Padding(padding:const EdgeInsets.only(top:14),child:Text('오늘 기록: ${todayRecord!['correct']}/${todayRecord!['total']} · ${todayRecord!['passed']==true?'O 달성':'X 미달성'}',style:const TextStyle(fontSize:18,fontWeight:FontWeight.bold)))]))]);
+    return ListView(padding:const EdgeInsets.all(16),children:[panel(Column(crossAxisAlignment:CrossAxisAlignment.stretch,children:[Row(mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[IconButton(onPressed:()=>setState(()=>month=DateTime(month.year,month.month-1)),icon:const Icon(Icons.chevron_left)),Text('${month.year}년 ${month.month}월',style:const TextStyle(fontSize:26,fontWeight:FontWeight.bold,color:navy)),IconButton(onPressed:()=>setState(()=>month=DateTime(month.year,month.month+1)),icon:const Icon(Icons.chevron_right))]),calendar(),const SizedBox(height:12),const Text('🔵 O: 목표 달성    🔴 X: 목표 미달성    ·: 오늘 진행 중',textAlign:TextAlign.center,style:TextStyle(fontSize:14))])),panel(Column(crossAxisAlignment:CrossAxisAlignment.stretch,children:[const Text('오늘의 학습',style:TextStyle(fontSize:24,fontWeight:FontWeight.bold)),const SizedBox(height:12),Text('새 단어 $fresh/10개   ·   복습 단어 $review/20개',style:const TextStyle(fontSize:19)),const SizedBox(height:6),Text('오늘 평가 ${p.length}문제 · 통과 ${((p.length*.8).ceil())}문제 이상',style:const TextStyle(color:navy)),if(p.length<30)const Padding(padding:EdgeInsets.only(top:8),child:Text('초기 학습이나 복습 예정 단어가 부족한 날은 가능한 단어만 평가합니다.',style:TextStyle(color:Colors.black54))),const SizedBox(height:14),
+    FilledButton.icon(
+      onPressed:startStudy,
+      icon:const Icon(Icons.menu_book),
+      label:Text(studiedToday?'단어 다시 공부하기':'1단계 · 단어 학습하기')
+    ),
+    const SizedBox(height:8),
+    Text(studiedToday?'학습 완료! 이제 퀴즈를 풀어 보세요.':'먼저 단어와 뜻을 공부한 다음 퀴즈를 풀어요.'),
+    const SizedBox(height:14),FilledButton.icon(onPressed:()=>startQuiz(practice:true),icon:const Icon(Icons.school),label:const Text('연습하기 · 즉시 피드백')),const SizedBox(height:8),FilledButton.icon(onPressed:()=>startQuiz(practice:false),icon:const Icon(Icons.edit),label:const Text('오늘의 평가 · 종료 후 채점')),if(todayRecord!=null)Padding(padding:const EdgeInsets.only(top:14),child:Text('오늘 기록: ${todayRecord!['correct']}/${todayRecord!['total']} · ${todayRecord!['passed']==true?'O 달성':'X 미달성'}',style:const TextStyle(fontSize:18,fontWeight:FontWeight.bold)))]))]);
   }
   Widget calendar(){
     final first=DateTime(month.year,month.month,1).weekday%7;
@@ -98,7 +129,130 @@ class _HomeState extends State<Home> {
   Widget wordPage()=>ListView(padding:const EdgeInsets.all(16),children:[panel(Column(crossAxisAlignment:CrossAxisAlignment.stretch,children:[const Text('나만의 단어 추가',style:TextStyle(fontSize:22,fontWeight:FontWeight.bold)),const SizedBox(height:8),const Text('현재 버전은 뜻을 직접 입력해야 합니다. 자동 사전 검색은 다음 개발 단계에서 연결합니다.'),const SizedBox(height:12),FilledButton.icon(onPressed:()=>showAddDialog(),icon:const Icon(Icons.add),label:const Text('단어 추가'))])),panel(Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('단어장 · ${words.length}개',style:const TextStyle(fontSize:22,fontWeight:FontWeight.bold)),const SizedBox(height:8),...words.map((w)=>ListTile(title:Text(w.word,style:const TextStyle(fontWeight:FontWeight.bold)),subtitle:Text('${w.meaning} · ${w.repetitions==0?'미학습':'복습 ${w.due??''}'}'),trailing:w.custom?IconButton(icon:const Icon(Icons.delete_outline),onPressed:()=>deleteWord(w)):null))]))]);
   void showAddDialog(){final en=TextEditingController();final ko=TextEditingController();showDialog(context:context,builder:(ctx)=>AlertDialog(title:const Text('나만의 단어 등록'),content:SizedBox(width:400,child:Column(mainAxisSize:MainAxisSize.min,children:[TextField(controller:en,decoration:const InputDecoration(labelText:'영어 단어')),const SizedBox(height:12),TextField(controller:ko,decoration:const InputDecoration(labelText:'한국어 뜻'))])),actions:[TextButton(onPressed:()=>Navigator.pop(ctx),child:const Text('취소')),FilledButton(onPressed:(){if(en.text.trim().isEmpty||ko.text.trim().isEmpty)return;addWord(en.text,ko.text);Navigator.pop(ctx);},child:const Text('저장'))]));}
   Widget statsPage(){final values=history.values.whereType<Map>().toList();final success=values.where((x)=>x['passed']==true).length;return ListView(padding:const EdgeInsets.all(16),children:[panel(Column(crossAxisAlignment:CrossAxisAlignment.start,children:[const Text('학습 통계',style:TextStyle(fontSize:24,fontWeight:FontWeight.bold)),const SizedBox(height:12),Text('학습한 날: ${values.length}일',style:const TextStyle(fontSize:20)),Text('O 달성: $success일',style:const TextStyle(fontSize:20)),Text('학습 경험 단어: ${words.where((w)=>w.repetitions>0).length}개',style:const TextStyle(fontSize:20)),const SizedBox(height:12),const Text('날짜별 상세 그래프는 후속 버전에서 추가합니다.')]))]);}
-  Widget settingsPage()=>ListView(padding:const EdgeInsets.all(16),children:[panel(const Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('브레인업 v0.1.0',style:TextStyle(fontSize:24,fontWeight:FontWeight.bold)),SizedBox(height:12),Text('알림: 사용 안 함'),Text('목표: 신규 10개 + 복습 20개'),Text('출석: 평가 정답률 80% 이상'),Text('연습: 즉시 피드백 / 평가: 종료 후 피드백'),SizedBox(height:12),Text('데이터는 이 기기에 저장됩니다. 앱 데이터를 삭제하거나 앱을 제거하면 기록이 사라질 수 있습니다.',style:TextStyle(color:Colors.black54))]))]);}
+  Widget settingsPage()=>ListView(padding:const EdgeInsets.all(16),children:[panel(const Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('브레인업 v0.3.0',style:TextStyle(fontSize:24,fontWeight:FontWeight.bold)),SizedBox(height:12),Text('알림: 사용 안 함'),Text('목표: 신규 10개 + 복습 20개'),Text('출석: 평가 정답률 80% 이상'),Text('연습: 즉시 피드백 / 평가: 종료 후 피드백'),SizedBox(height:12),Text('데이터는 이 기기에 저장됩니다. 앱 데이터를 삭제하거나 앱을 제거하면 기록이 사라질 수 있습니다.',style:TextStyle(color:Colors.black54))]))]);}
+
+
+class StudyPage extends StatefulWidget {
+  final List<Word> words;
+  final Future<void> Function() onFinished;
+  const StudyPage({super.key,required this.words,required this.onFinished});
+  @override
+  State<StudyPage> createState()=>_StudyPageState();
+}
+
+class _StudyPageState extends State<StudyPage> {
+  int index=0;
+  bool saving=false;
+
+  Future<void> finish() async {
+    if(saving)return;
+    setState(()=>saving=true);
+    await widget.onFinished();
+    if(mounted)Navigator.pop(context);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final w=widget.words[index];
+    final last=index==widget.words.length-1;
+    return Scaffold(
+      appBar:AppBar(title:const Text('오늘의 단어 학습')),
+      body:Center(
+        child:ConstrainedBox(
+          constraints:const BoxConstraints(maxWidth:700),
+          child:Padding(
+            padding:const EdgeInsets.all(20),
+            child:Column(
+              crossAxisAlignment:CrossAxisAlignment.stretch,
+              children:[
+                LinearProgressIndicator(
+                  value:(index+1)/widget.words.length
+                ),
+                const SizedBox(height:18),
+                Text(
+                  '${index+1} / ${widget.words.length}',
+                  textAlign:TextAlign.center,
+                  style:const TextStyle(fontSize:20,color:navy)
+                ),
+                const SizedBox(height:20),
+                Expanded(
+                  child:Card(
+                    color:Colors.white,
+                    child:Padding(
+                      padding:const EdgeInsets.all(24),
+                      child:Center(
+                        child:SingleChildScrollView(
+                          child:Column(
+                            mainAxisSize:MainAxisSize.min,
+                            children:[
+                              const Text('영어 단어',
+                                style:TextStyle(color:Colors.grey)),
+                              const SizedBox(height:12),
+                              SelectableText(
+                                w.word,
+                                textAlign:TextAlign.center,
+                                style:const TextStyle(
+                                  fontSize:38,
+                                  fontWeight:FontWeight.bold,
+                                  color:navy
+                                )
+                              ),
+                              const SizedBox(height:24),
+                              const Text('한국어 뜻',
+                                style:TextStyle(color:Colors.grey)),
+                              const SizedBox(height:8),
+                              Text(
+                                w.meaning,
+                                textAlign:TextAlign.center,
+                                style:const TextStyle(fontSize:27)
+                              ),
+                              if(w.example.isNotEmpty)...[
+                                const SizedBox(height:28),
+                                const Divider(),
+                                const SizedBox(height:16),
+                                const Text('예문'),
+                                const SizedBox(height:8),
+                                Text(
+                                  w.example,
+                                  textAlign:TextAlign.center,
+                                  style:const TextStyle(fontSize:19)
+                                )
+                              ]
+                            ]
+                          )
+                        )
+                      )
+                    )
+                  )
+                ),
+                const SizedBox(height:16),
+                Row(
+                  children:[
+                    Expanded(
+                      child:OutlinedButton(
+                        onPressed:index==0?null:
+                          ()=>setState(()=>index--),
+                        child:const Text('이전 단어')
+                      )
+                    ),
+                    const SizedBox(width:12),
+                    Expanded(
+                      child:FilledButton(
+                        onPressed:saving?null:
+                          last?finish:()=>setState(()=>index++),
+                        child:Text(last?'학습 완료':'다음 단어')
+                      )
+                    )
+                  ]
+                )
+              ]
+            )
+          )
+        )
+      )
+    );
+  }
+}
 
 class QuizPage extends StatefulWidget {
   final List<Word> words;final bool practice;final void Function(List<bool>) onFinished;
